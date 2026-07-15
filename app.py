@@ -14,6 +14,32 @@ DEFAULT_ENDGAME = 30
 
 TEAMS = ("yellow", "green")
 
+# Camp round-robin schedule (yellow side, green side) + who sits out,
+# straight from the official match schedule sheet.
+SCHEDULE = [
+    {"rotation": 1, "bye": "Ruby", "matches": [
+        ("Emerald", "Obsidian"), ("Lapis", "Quartz"), ("Topaz", "Amethyst")]},
+    {"rotation": 2, "bye": "Quartz", "matches": [
+        ("Topaz", "Lapis"), ("Ruby", "Obsidian"), ("Amethyst", "Emerald")]},
+    {"rotation": 3, "bye": "Topaz", "matches": [
+        ("Obsidian", "Amethyst"), ("Lapis", "Emerald"), ("Quartz", "Ruby")]},
+    {"rotation": 4, "bye": "Emerald", "matches": [
+        ("Quartz", "Obsidian"), ("Ruby", "Topaz"), ("Amethyst", "Lapis")]},
+    {"rotation": 5, "bye": "Amethyst", "matches": [
+        ("Ruby", "Emerald"), ("Quartz", "Topaz"), ("Lapis", "Obsidian")]},
+    {"rotation": 6, "bye": "Lapis", "matches": [
+        ("Quartz", "Emerald"), ("Obsidian", "Topaz"), ("Ruby", "Amethyst")]},
+    {"rotation": 7, "bye": "Obsidian", "matches": [
+        ("Lapis", "Ruby"), ("Amethyst", "Quartz"), ("Topaz", "Emerald")]},
+]
+
+# Flattened: MATCHES[i] = {"rotation", "yellow", "green"}; match number = i + 1.
+MATCHES = [
+    {"rotation": rot["rotation"], "yellow": y, "green": g}
+    for rot in SCHEDULE
+    for y, g in rot["matches"]
+]
+
 app = Flask(__name__)
 
 
@@ -49,6 +75,7 @@ def init_db():
             auto_duration INTEGER NOT NULL DEFAULT {auto},
             driver_duration INTEGER NOT NULL DEFAULT {driver},
             endgame_duration INTEGER NOT NULL DEFAULT {endgame},
+            schedule_index INTEGER NOT NULL DEFAULT 0,
             timer_duration INTEGER NOT NULL DEFAULT {total},
             timer_remaining REAL NOT NULL DEFAULT {total},
             timer_end REAL,
@@ -82,6 +109,15 @@ def init_db():
             )
             existing.discard(old)
             existing.add(new)
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS results (
+            match_index INTEGER PRIMARY KEY,
+            yellow_score INTEGER NOT NULL,
+            green_score INTEGER NOT NULL
+        )
+        """
+    )
     for col, default in (
         ("yellow_fouls", 0),
         ("yellow_majors", 0),
@@ -90,6 +126,7 @@ def init_db():
         ("auto_duration", DEFAULT_AUTO),
         ("driver_duration", DEFAULT_DRIVER),
         ("endgame_duration", DEFAULT_ENDGAME),
+        ("schedule_index", 0),
     ):
         if col not in existing:
             db.execute(
@@ -171,6 +208,11 @@ def display():
     return render_template("display.html")
 
 
+@app.route("/schedule")
+def schedule():
+    return render_template("schedule.html")
+
+
 @app.route("/admin")
 def admin():
     return render_template("admin.html")
@@ -178,6 +220,74 @@ def admin():
 
 @app.route("/api/state")
 def api_state():
+    return state_json()
+
+
+@app.route("/api/schedule")
+def api_schedule():
+    db = get_db()
+    row = db.execute("SELECT schedule_index FROM match_state WHERE id = 1").fetchone()
+    results = {
+        r["match_index"]: {"yellow": r["yellow_score"], "green": r["green_score"]}
+        for r in db.execute("SELECT * FROM results")
+    }
+    matches = [
+        {
+            "n": i + 1,
+            "rotation": m["rotation"],
+            "yellow": m["yellow"],
+            "green": m["green"],
+            "result": results.get(i),
+        }
+        for i, m in enumerate(MATCHES)
+    ]
+    return jsonify(
+        {
+            "current": row["schedule_index"],
+            "matches": matches,
+            "byes": {rot["rotation"]: rot["bye"] for rot in SCHEDULE},
+        }
+    )
+
+
+@app.route("/api/next_match", methods=["POST"])
+def api_next_match():
+    """Advance to the next scheduled match (dir=1) or go back one (dir=-1).
+    Advancing saves the current scores as that match's final result; going
+    back restores whatever result was saved so it can be corrected."""
+    data = request.get_json(silent=True) or {}
+    direction = data.get("dir")
+    if direction not in (1, -1):
+        return jsonify({"error": "bad request"}), 400
+    db = get_db()
+    row = db.execute("SELECT * FROM match_state WHERE id = 1").fetchone()
+    idx = min(max(row["schedule_index"], 0), len(MATCHES) - 1)
+
+    if direction == 1:
+        db.execute(
+            "INSERT OR REPLACE INTO results (match_index, yellow_score, green_score)"
+            " VALUES (?, ?, ?)",
+            (idx, row["yellow_score"], row["green_score"]),
+        )
+        new_idx = min(idx + 1, len(MATCHES) - 1)
+    else:
+        new_idx = max(idx - 1, 0)
+
+    saved = db.execute(
+        "SELECT * FROM results WHERE match_index = ?", (new_idx,)
+    ).fetchone()
+    yellow_score = saved["yellow_score"] if (direction == -1 and saved) else 0
+    green_score = saved["green_score"] if (direction == -1 and saved) else 0
+
+    match = MATCHES[new_idx]
+    db.execute(
+        "UPDATE match_state SET schedule_index = ?, match_number = ?,"
+        " yellow_team = ?, green_team = ?, yellow_score = ?, green_score = ?,"
+        " yellow_fouls = 0, yellow_majors = 0, green_fouls = 0, green_majors = 0,"
+        " timer_running = 0, timer_remaining = timer_duration WHERE id = 1",
+        (new_idx, new_idx + 1, match["yellow"], match["green"], yellow_score, green_score),
+    )
+    db.commit()
     return state_json()
 
 
@@ -305,6 +415,16 @@ def api_setup():
             "UPDATE match_state SET yellow_score = 0, green_score = 0,"
             " yellow_fouls = 0, yellow_majors = 0, green_fouls = 0, green_majors = 0"
             " WHERE id = 1"
+        )
+    if data.get("reset_schedule"):
+        db.execute("DELETE FROM results")
+        first = MATCHES[0]
+        db.execute(
+            "UPDATE match_state SET schedule_index = 0, match_number = 1,"
+            " yellow_team = ?, green_team = ?, yellow_score = 0, green_score = 0,"
+            " yellow_fouls = 0, yellow_majors = 0, green_fouls = 0, green_majors = 0,"
+            " timer_running = 0, timer_remaining = timer_duration WHERE id = 1",
+            (first["yellow"], first["green"]),
         )
     db.commit()
     return state_json()

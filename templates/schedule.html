@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Match Schedule{% endblock %}
+{% block bodyclass %}schedule{% endblock %}
+{% block content %}
+  <div id="view-bracket" class="view">
+    <header class="sched-top">
+      <div class="sched-title">MATCH SCHEDULE</div>
+    </header>
+    <main id="rot-grid" class="rot-grid"></main>
+  </div>
+
+  <div id="view-next" class="view hidden">
+    <main class="upnext">
+      <div class="upnext-label">UP NEXT</div>
+      <div id="un-match" class="upnext-match">MATCH &ndash;</div>
+      <div class="upnext-teams">
+        <div class="upnext-card yellow"><div class="upnext-side">YELLOW</div><div id="un-yellow" class="upnext-name">&ndash;</div></div>
+        <div class="upnext-vs">VS</div>
+        <div class="upnext-card green"><div class="upnext-side">GREEN</div><div id="un-green" class="upnext-name">&ndash;</div></div>
+      </div>
+      <div id="un-ondeck" class="upnext-ondeck"></div>
+      <div id="un-bye" class="upnext-bye"></div>
+    </main>
+  </div>
+{% endblock %}
+{% block script %}
+<script>
+const BRACKET_MS = 15000;  // how long the full bracket stays up
+const UPNEXT_MS = 8000;    // how long "up next" stays up
+
+let sched = null;
+
+function matchRow(m, current) {
+  const done = !!m.result;
+  const cls = ['match-row'];
+  if (m.n - 1 === current) cls.push('current');
+  if (done) cls.push('done');
+  let mid = 'vs';
+  let yCls = 'mr-name yellow', gCls = 'mr-name green';
+  if (done) {
+    mid = m.result.yellow + ' – ' + m.result.green;
+    if (m.result.yellow > m.result.green) yCls += ' winner';
+    else if (m.result.green > m.result.yellow) gCls += ' winner';
+  }
+  return '<div class="' + cls.join(' ') + '">' +
+    '<span class="mr-num">' + m.n + '</span>' +
+    '<span class="' + yCls + '">' + m.yellow + '</span>' +
+    '<span class="mr-mid">' + mid + '</span>' +
+    '<span class="' + gCls + '">' + m.green + '</span>' +
+    '</div>';
+}
+
+function renderBracket() {
+  const grid = document.getElementById('rot-grid');
+  const rotations = {};
+  sched.matches.forEach(m => {
+    (rotations[m.rotation] = rotations[m.rotation] || []).push(m);
+  });
+  grid.innerHTML = Object.keys(rotations).map(r =>
+    '<section class="rot-card">' +
+    '<div class="rot-title">ROTATION ' + r + '</div>' +
+    rotations[r].map(m => matchRow(m, sched.current)).join('') +
+    '<div class="bye-row">BYE: ' + sched.byes[r] + '</div>' +
+    '</section>'
+  ).join('');
+}
+
+function renderUpNext() {
+  const cur = sched.matches[sched.current];
+  document.getElementById('un-match').textContent =
+    'MATCH ' + cur.n + ' · ROTATION ' + cur.rotation;
+  document.getElementById('un-yellow').textContent = cur.yellow;
+  document.getElementById('un-green').textContent = cur.green;
+  const next = sched.matches[sched.current + 1];
+  document.getElementById('un-ondeck').textContent =
+    next ? 'ON DECK: ' + next.yellow + ' vs ' + next.green + ' (Match ' + next.n + ')'
+         : 'FINAL MATCH OF THE DAY';
+  document.getElementById('un-bye').textContent =
+    'SITTING OUT: ' + sched.byes[cur.rotation];
+}
+
+async function refresh() {
+  try {
+    const r = await fetch('/api/schedule', { cache: 'no-store' });
+    if (!r.ok) return;
+    sched = await r.json();
+    renderBracket();
+    renderUpNext();
+  } catch (e) { /* keep last known schedule */ }
+}
+refresh();
+setInterval(refresh, 3000);
+
+let showingBracket = true;
+function flip() {
+  showingBracket = !showingBracket;
+  document.getElementById('view-bracket').classList.toggle('hidden', !showingBracket);
+  document.getElementById('view-next').classList.toggle('hidden', showingBracket);
+  setTimeout(flip, showingBracket ? BRACKET_MS : UPNEXT_MS);
+}
+setTimeout(flip, BRACKET_MS);
+</script>
+{% endblock %}

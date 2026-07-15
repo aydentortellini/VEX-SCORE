@@ -14,6 +14,16 @@
   </section>
 
   <section class="card">
+    <h2>Schedule <span id="sched-mini" class="mini"></span></h2>
+    <div class="btn-row">
+      <button id="prev-match" class="ctl">&#9664; Prev</button>
+      <button id="next-match" class="ctl save">Next Match &#9654;</button>
+    </div>
+    <div id="sched-msg" class="msg"></div>
+    <button id="reset-schedule" class="ctl danger">Restart schedule (clear all results)</button>
+  </section>
+
+  <section class="card">
     <h2>Match Setup</h2>
     <label>Match number
       <input id="match-number" type="number" min="1" max="9999" inputmode="numeric">
@@ -44,7 +54,7 @@
   </section>
 
   <div class="foot-links">
-    <a href="/">Referee</a> &middot; <a href="/display">Display</a>
+    <a href="/">Referee</a> &middot; <a href="/display">Display</a> &middot; <a href="/schedule">Schedule</a>
   </div>
 {% endblock %}
 {% block script %}
@@ -103,6 +113,54 @@ document.getElementById('save').addEventListener('click', async () => {
   }
   setTimeout(() => { msg.textContent = ''; }, 3000);
 });
+
+let schedCache = null;
+
+async function refreshSchedule() {
+  try {
+    const r = await fetch('/api/schedule', { cache: 'no-store' });
+    if (!r.ok) return;
+    schedCache = await r.json();
+    const cur = schedCache.matches[schedCache.current];
+    document.getElementById('sched-mini').textContent =
+      'Match ' + cur.n + '/' + schedCache.matches.length + ' · ' + cur.yellow + ' vs ' + cur.green;
+  } catch (e) {}
+}
+
+async function stepMatch(dir) {
+  const msg = document.getElementById('sched-msg');
+  if (schedCache) {
+    const cur = schedCache.matches[schedCache.current];
+    const state = await fetchState().catch(() => null);
+    if (dir === 1 && state) {
+      const next = schedCache.matches[schedCache.current + 1];
+      const q = 'Save Yellow ' + state.yellow_score + ' – Green ' + state.green_score +
+        ' as the final for Match ' + cur.n + ' (' + cur.yellow + ' vs ' + cur.green + ')' +
+        (next ? ' and load Match ' + next.n + ' (' + next.yellow + ' vs ' + next.green + ')?'
+              : '? (This is the last match.)');
+      if (!confirm(q)) return;
+    }
+    if (dir === -1 && !confirm('Go BACK to the previous match? Its saved score will be reloaded.')) return;
+  }
+  try {
+    const s = await post('/api/next_match', { dir: dir });
+    fillForm(s);
+    await refreshSchedule();
+    msg.textContent = 'Now on match ' + s.match_number + ': ' + s.yellow_team + ' vs ' + s.green_team;
+  } catch (e) {
+    msg.textContent = e.message;
+  }
+  setTimeout(() => { msg.textContent = ''; }, 4000);
+}
+
+document.getElementById('next-match').addEventListener('click', () => stepMatch(1));
+document.getElementById('prev-match').addEventListener('click', () => stepMatch(-1));
+document.getElementById('reset-schedule').addEventListener('click', async () => {
+  if (!confirm('Restart the whole schedule? ALL saved match results will be erased.')) return;
+  const s = await post('/api/setup', { reset_schedule: true }).catch(() => null);
+  if (s) { fillForm(s); refreshSchedule(); }
+});
+refreshSchedule();
 
 document.getElementById('reset-scores').addEventListener('click', () => {
   if (confirm('Reset both scores and fouls to 0?')) {
