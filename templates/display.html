@@ -3,7 +3,7 @@
 {% block bodyclass %}display{% endblock %}
 {% block content %}
   <header class="disp-top">
-    <div class="match-label">MATCH <span id="match-number">&ndash;</span></div>
+    <div class="match-label" id="match-label">&ndash;</div>
     <div id="timer" class="timer">--:--</div>
     <div id="phase" class="phase"></div>
     <div id="total-time" class="total-time"></div>
@@ -69,7 +69,7 @@ function setClock(s) {
 async function refresh() {
   try {
     const s = await fetchState();
-    document.getElementById('match-number').textContent = s.match_number;
+    document.getElementById('match-label').textContent = s.match_label || ('MATCH ' + s.match_number);
     document.getElementById('yellow-team').textContent = s.yellow_team;
     document.getElementById('green-team').textContent = s.green_team;
     setScore('yellow', s.yellow_score);

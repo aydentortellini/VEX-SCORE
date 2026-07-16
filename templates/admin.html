@@ -2,56 +2,73 @@
 {% block title %}Match Admin{% endblock %}
 {% block bodyclass %}admin{% endblock %}
 {% block content %}
-  <h1>MATCH ADMIN</h1>
+  <h1>MATCH ADMIN <span id="phase-chip" class="phase-chip"></span></h1>
 
-  <section class="card">
-    <h2>Timer <span id="timer-mini" class="mini">--:--</span></h2>
-    <div class="btn-row">
-      <button class="ctl start" data-action="start">Start</button>
-      <button class="ctl pause" data-action="pause">Pause</button>
-      <button class="ctl reset" data-action="reset">Reset</button>
+  <div class="admin-grid">
+    <div class="admin-col">
+      <section class="card">
+        <h2>Timer <span id="timer-mini" class="mini">--:--</span></h2>
+        <div class="btn-row">
+          <button class="ctl start" data-action="start">Start</button>
+          <button class="ctl pause" data-action="pause">Pause</button>
+          <button class="ctl reset" data-action="reset">Reset</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Match Control <span id="sched-mini" class="mini"></span></h2>
+        <div class="btn-row">
+          <button id="prev-match" class="ctl">&#9664; Prev</button>
+          <button id="next-match" class="ctl save">Next Match &#9654;</button>
+        </div>
+        <div id="sched-msg" class="msg"></div>
+      </section>
+
+      <section class="card">
+        <h2>Match Setup</h2>
+        <label>Match number
+          <input id="match-number" type="number" min="1" max="9999" inputmode="numeric">
+        </label>
+        <label>Yellow team name
+          <input id="yellow-team" maxlength="20" autocomplete="off">
+        </label>
+        <label>Green team name
+          <input id="green-team" maxlength="20" autocomplete="off">
+        </label>
+        <label>Auto time (seconds)
+          <input id="auto-duration" type="number" min="0" max="600" inputmode="numeric">
+        </label>
+        <label>Teleop time (seconds)
+          <input id="driver-duration" type="number" min="5" max="3600" inputmode="numeric">
+        </label>
+        <label>Endgame time (seconds)
+          <input id="endgame-duration" type="number" min="0" max="600" inputmode="numeric">
+          <span class="hint">Official GEM QUEST: 20 auto &middot; 100 teleop &middot; 30 endgame (2:30 total)</span>
+        </label>
+        <button id="save" class="ctl save">Save</button>
+        <div id="save-msg" class="msg"></div>
+      </section>
+
+      <section class="card">
+        <h2>Danger Zone <span id="score-mini" class="mini"></span></h2>
+        <button id="reset-scores" class="ctl danger">Reset live scores &amp; fouls to 0</button>
+        <button id="reset-schedule" class="ctl danger">Restart event (clear ALL results &amp; elims)</button>
+      </section>
     </div>
-  </section>
 
-  <section class="card">
-    <h2>Schedule <span id="sched-mini" class="mini"></span></h2>
-    <div class="btn-row">
-      <button id="prev-match" class="ctl">&#9664; Prev</button>
-      <button id="next-match" class="ctl save">Next Match &#9654;</button>
+    <div class="admin-col">
+      <section class="card">
+        <h2>Qualification Matches <span class="mini">click scores to edit &middot; &#9654; = put on scoreboard</span></h2>
+        <div id="quali-list" class="quali-list"></div>
+        <button id="restore-pairings" class="ctl">Restore official pairings from the sheet</button>
+      </section>
+
+      <section class="card">
+        <h2>Eliminations <span class="mini">4 teams &middot; double elim &middot; one grand final</span></h2>
+        <div id="elims-body"></div>
+      </section>
     </div>
-    <div id="sched-msg" class="msg"></div>
-    <button id="reset-schedule" class="ctl danger">Restart schedule (clear all results)</button>
-  </section>
-
-  <section class="card">
-    <h2>Match Setup</h2>
-    <label>Match number
-      <input id="match-number" type="number" min="1" max="9999" inputmode="numeric">
-    </label>
-    <label>Yellow team name
-      <input id="yellow-team" maxlength="20" autocomplete="off">
-    </label>
-    <label>Green team name
-      <input id="green-team" maxlength="20" autocomplete="off">
-    </label>
-    <label>Auto time (seconds)
-      <input id="auto-duration" type="number" min="0" max="600" inputmode="numeric">
-    </label>
-    <label>Teleop time (seconds)
-      <input id="driver-duration" type="number" min="5" max="3600" inputmode="numeric">
-    </label>
-    <label>Endgame time (seconds)
-      <input id="endgame-duration" type="number" min="0" max="600" inputmode="numeric">
-      <span class="hint">Official GEM QUEST: 20 auto &middot; 100 teleop &middot; 30 endgame (2:30 total)</span>
-    </label>
-    <button id="save" class="ctl save">Save</button>
-    <div id="save-msg" class="msg"></div>
-  </section>
-
-  <section class="card">
-    <h2>Scores <span id="score-mini" class="mini"></span></h2>
-    <button id="reset-scores" class="ctl danger">Reset scores &amp; fouls to 0</button>
-  </section>
+  </div>
 
   <div class="foot-links">
     <a href="/">Referee</a> &middot; <a href="/display">Display</a> &middot; <a href="/schedule">Schedule</a>
@@ -60,6 +77,7 @@
 {% block script %}
 <script>
 let formLoaded = false;
+let schedCache = null;
 
 function fillForm(s) {
   document.getElementById('match-number').value = s.match_number;
@@ -76,6 +94,12 @@ function showStatus(s) {
   t.textContent = fmtTime(s.timer_remaining) + (s.timer_running ? ' (running)' : '');
   document.getElementById('score-mini').textContent =
     'Yellow ' + s.yellow_score + ' – Green ' + s.green_score;
+  document.getElementById('sched-mini').textContent =
+    (s.match_label || '') + ' · ' + s.yellow_team + ' vs ' + s.green_team;
+  document.getElementById('phase-chip').textContent =
+    s.phase === 'elims' ? 'ELIMINATIONS' : 'QUALIFICATIONS';
+  document.getElementById('phase-chip').className =
+    'phase-chip ' + (s.phase === 'elims' ? 'elims' : '');
   if (!formLoaded) fillForm(s);
 }
 
@@ -87,7 +111,7 @@ async function post(url, body) {
   });
   const s = await r.json();
   if (!r.ok) throw new Error(s.error || 'request failed');
-  showStatus(s);
+  if ('timer_remaining' in s) showStatus(s);
   return s;
 }
 
@@ -114,30 +138,177 @@ document.getElementById('save').addEventListener('click', async () => {
   setTimeout(() => { msg.textContent = ''; }, 3000);
 });
 
-let schedCache = null;
+/* ===== Qualification match editor ===== */
 
-async function refreshSchedule() {
+function teamSelect(cls, selected) {
+  return '<select class="' + cls + '">' +
+    schedCache.roster.map(t =>
+      '<option' + (t === selected ? ' selected' : '') + '>' + t + '</option>'
+    ).join('') + '</select>';
+}
+
+function renderQualiList() {
+  const list = document.getElementById('quali-list');
+  const isQuali = schedCache.phase === 'quali';
+  list.innerHTML = schedCache.matches.map(m => {
+    const i = m.n - 1;
+    const cur = isQuali && i === schedCache.current;
+    const r = m.full_result;
+    return '<div class="q-row' + (cur ? ' current' : '') + '" data-i="' + i + '">' +
+      '<span class="q-num">' + m.n + '</span>' +
+      '<span class="q-rot">R' + m.rotation + '</span>' +
+      teamSelect('q-y', m.yellow) +
+      '<span class="q-vs">vs</span>' +
+      teamSelect('q-g', m.green) +
+      '<input class="q-ys" type="number" min="0" max="999" value="' + (r ? r.yellow_score : '') + '" placeholder="–">' +
+      '<span class="q-dash">–</span>' +
+      '<input class="q-gs" type="number" min="0" max="999" value="' + (r ? r.green_score : '') + '" placeholder="–">' +
+      '<button class="q-btn q-save" title="save teams + result">Save</button>' +
+      '<button class="q-btn q-clear" title="erase this match\'s saved result">&#10005;</button>' +
+      '<button class="q-btn q-go" title="put this match on the scoreboard">&#9654;</button>' +
+      '</div>';
+  }).join('');
+
+  list.querySelectorAll('.q-row').forEach(row => {
+    const i = parseInt(row.dataset.i, 10);
+    row.addEventListener('input', () => row.classList.add('dirty'));
+    row.querySelector('.q-save').addEventListener('click', async () => {
+      const body = {
+        index: i,
+        yellow: row.querySelector('.q-y').value,
+        green: row.querySelector('.q-g').value
+      };
+      const ys = row.querySelector('.q-ys').value, gs = row.querySelector('.q-gs').value;
+      if (ys !== '' || gs !== '') {
+        body.result = { yellow_score: ys === '' ? 0 : ys, green_score: gs === '' ? 0 : gs };
+      }
+      await doQualiEdit(body, 'Match ' + (i + 1) + ' saved.');
+    });
+    row.querySelector('.q-clear').addEventListener('click', async () => {
+      if (!confirm('Erase the saved result for match ' + (i + 1) + '?')) return;
+      await doQualiEdit({ index: i, result: null }, 'Match ' + (i + 1) + ' result erased.');
+    });
+    row.querySelector('.q-go').addEventListener('click', async () => {
+      if (!confirm('Put match ' + (i + 1) + ' on the scoreboard? Live scores will be replaced.')) return;
+      await doQualiEdit({ index: i, make_current: true }, 'Match ' + (i + 1) + ' is live.');
+    });
+  });
+}
+
+async function doQualiEdit(body, okMsg) {
+  const msg = document.getElementById('sched-msg');
+  try {
+    const s = await post('/api/quali_match', body);
+    fillForm(s);
+    await refreshSchedule(true);
+    msg.textContent = okMsg;
+  } catch (e) {
+    msg.textContent = e.message;
+  }
+  setTimeout(() => { msg.textContent = ''; }, 4000);
+}
+
+document.getElementById('restore-pairings').addEventListener('click', async () => {
+  if (!confirm('Reset all 21 pairings back to the official schedule sheet? Saved results stay.')) return;
+  await post('/api/setup', { restore_pairings: true }).catch(() => {});
+  await refreshSchedule(true);
+});
+
+/* ===== Eliminations ===== */
+
+function renderElims() {
+  const body = document.getElementById('elims-body');
+  if (schedCache.phase !== 'elims') {
+    const top4 = schedCache.rankings.slice(0, 4).map(t => t.team);
+    body.innerHTML =
+      '<div class="hint">Seeds pre-filled from current rankings (semifinals: 1 vs 4, 2 vs 3). Adjust if needed, then start.</div>' +
+      '<div class="seed-grid">' +
+      [0, 1, 2, 3].map(i =>
+        '<label>Seed ' + (i + 1) + teamSelect('seed-' + (i + 1), top4[i]) + '</label>'
+      ).join('') +
+      '</div>' +
+      '<button id="start-elims" class="ctl save">START ELIMINATIONS</button>';
+    document.getElementById('start-elims').addEventListener('click', async () => {
+      const seeds = [1, 2, 3, 4].map(n => body.querySelector('.seed-' + n).value);
+      if (new Set(seeds).size !== 4) { alert('Pick four different teams.'); return; }
+      if (!confirm('Start eliminations with:\n1. ' + seeds[0] + '\n2. ' + seeds[1] +
+        '\n3. ' + seeds[2] + '\n4. ' + seeds[3] +
+        '\n\nSemifinal 1 (' + seeds[0] + ' vs ' + seeds[3] + ') goes on the scoreboard.')) return;
+      const msg = document.getElementById('sched-msg');
+      try {
+        const s = await post('/api/elims', { action: 'start', seeds: seeds });
+        fillForm(s);
+        await refreshSchedule(true);
+        msg.textContent = 'Eliminations started!';
+      } catch (e) { msg.textContent = e.message; }
+      setTimeout(() => { msg.textContent = ''; }, 4000);
+    });
+    return;
+  }
+
+  const e = schedCache.elims;
+  body.innerHTML =
+    '<div class="elim-admin-list">' +
+    e.matches.map((m, i) =>
+      '<div class="ea-row' + (i === e.current && !e.champion ? ' current' : '') +
+      (m.result ? ' done' : '') + '">' +
+      '<span class="ea-label">' + m.label + '</span>' +
+      '<span class="ea-y">' + m.yellow + '</span>' +
+      '<span class="ea-mid">' + (m.result ? m.result.yellow + ' – ' + m.result.green : 'vs') + '</span>' +
+      '<span class="ea-g">' + m.green + '</span>' +
+      '</div>'
+    ).join('') +
+    (e.champion ? '<div class="ea-champion">&#127942; CHAMPION: ' + e.champion + '</div>' : '') +
+    '</div>' +
+    '<div class="hint">Use Prev / Next Match to run the bracket. Elim matches can\'t end in a tie.</div>' +
+    '<button id="back-quali" class="ctl danger">Back to qualifications</button>';
+  document.getElementById('back-quali').addEventListener('click', async () => {
+    if (!confirm('Leave eliminations and go back to qualification matches? Bracket results are kept.')) return;
+    const s = await post('/api/elims', { action: 'back_to_quali' }).catch(() => null);
+    if (s) { fillForm(s); refreshSchedule(true); }
+  });
+}
+
+/* ===== Shared refresh ===== */
+
+async function refreshSchedule(force) {
   try {
     const r = await fetch('/api/schedule', { cache: 'no-store' });
     if (!r.ok) return;
-    schedCache = await r.json();
-    const cur = schedCache.matches[schedCache.current];
-    document.getElementById('sched-mini').textContent =
-      'Match ' + cur.n + '/' + schedCache.matches.length + ' · ' + cur.yellow + ' vs ' + cur.green;
+    const fresh = await r.json();
+    const phaseChanged = !schedCache || fresh.phase !== schedCache.phase;
+    const editing = document.activeElement &&
+      (document.getElementById('quali-list').contains(document.activeElement) ||
+       document.getElementById('elims-body').contains(document.activeElement));
+    const dirty = document.querySelector('#quali-list .q-row.dirty');
+    schedCache = fresh;
+    if (force || phaseChanged || (!editing && !dirty)) {
+      renderQualiList();
+      renderElims();
+    }
   } catch (e) {}
 }
 
 async function stepMatch(dir) {
   const msg = document.getElementById('sched-msg');
   if (schedCache) {
-    const cur = schedCache.matches[schedCache.current];
     const state = await fetchState().catch(() => null);
     if (dir === 1 && state) {
-      const next = schedCache.matches[schedCache.current + 1];
-      const q = 'Save Yellow ' + state.yellow_score + ' – Green ' + state.green_score +
-        ' as the final for Match ' + cur.n + ' (' + cur.yellow + ' vs ' + cur.green + ')' +
-        (next ? ' and load Match ' + next.n + ' (' + next.yellow + ' vs ' + next.green + ')?'
-              : '? (This is the last match.)');
+      let q;
+      if (schedCache.phase === 'elims') {
+        const cur = schedCache.elims.matches[schedCache.elims.current];
+        const next = schedCache.elims.matches[schedCache.elims.current + 1];
+        q = 'Save Yellow ' + state.yellow_score + ' – Green ' + state.green_score +
+          ' as the ' + cur.label + ' final' +
+          (next ? ' and move on to the ' + next.label + '?' : '? (That was the GRAND FINAL.)');
+      } else {
+        const cur = schedCache.matches[schedCache.current];
+        const next = schedCache.matches[schedCache.current + 1];
+        q = 'Save Yellow ' + state.yellow_score + ' – Green ' + state.green_score +
+          ' as the final for Match ' + cur.n + ' (' + cur.yellow + ' vs ' + cur.green + ')' +
+          (next ? ' and load Match ' + next.n + ' (' + next.yellow + ' vs ' + next.green + ')?'
+                : '? (This is the last match.)');
+      }
       if (!confirm(q)) return;
     }
     if (dir === -1 && !confirm('Go BACK to the previous match? Its saved score will be reloaded.')) return;
@@ -145,33 +316,36 @@ async function stepMatch(dir) {
   try {
     const s = await post('/api/next_match', { dir: dir });
     fillForm(s);
-    await refreshSchedule();
-    msg.textContent = 'Now on match ' + s.match_number + ': ' + s.yellow_team + ' vs ' + s.green_team;
+    await refreshSchedule(true);
+    msg.textContent = 'Now on ' + s.match_label + ': ' + s.yellow_team + ' vs ' + s.green_team;
   } catch (e) {
     msg.textContent = e.message;
   }
-  setTimeout(() => { msg.textContent = ''; }, 4000);
+  setTimeout(() => { msg.textContent = ''; }, 5000);
 }
 
 document.getElementById('next-match').addEventListener('click', () => stepMatch(1));
 document.getElementById('prev-match').addEventListener('click', () => stepMatch(-1));
-document.getElementById('reset-schedule').addEventListener('click', async () => {
-  if (!confirm('Restart the whole schedule? ALL saved match results will be erased.')) return;
-  const s = await post('/api/setup', { reset_schedule: true }).catch(() => null);
-  if (s) { fillForm(s); refreshSchedule(); }
-});
-refreshSchedule();
 
 document.getElementById('reset-scores').addEventListener('click', () => {
-  if (confirm('Reset both scores and fouls to 0?')) {
+  if (confirm('Reset the LIVE scores and fouls to 0? (Saved results are untouched.)')) {
     post('/api/setup', { reset_scores: true }).catch(() => {});
   }
+});
+
+document.getElementById('reset-schedule').addEventListener('click', async () => {
+  if (!confirm('Restart the WHOLE event? All quali results, elim results, and seeds will be erased.')) return;
+  if (!confirm('Really sure? This cannot be undone.')) return;
+  const s = await post('/api/setup', { reset_schedule: true }).catch(() => null);
+  if (s) { fillForm(s); refreshSchedule(true); }
 });
 
 async function refresh() {
   try { showStatus(await fetchState()); } catch (e) {}
 }
 refresh();
+refreshSchedule(true);
 setInterval(refresh, 1000);
+setInterval(() => refreshSchedule(false), 5000);
 </script>
 {% endblock %}

@@ -5,15 +5,32 @@
   <div id="video-wrap" class="video-wrap hidden">
     <img id="stream" alt="live camera feed">
     <div class="live-chip"><span class="live-dot"></span>LIVE</div>
+    <div class="score-overlay">
+      <div class="ov-side yellow">
+        <span class="ov-name" id="ov-yname">&ndash;</span>
+        <span class="ov-fouls" id="ov-yfouls"></span>
+        <span class="ov-score" id="ov-yscore">0</span>
+      </div>
+      <div class="ov-mid">
+        <span class="ov-label" id="ov-label"></span>
+        <span class="ov-clock" id="ov-clock">--:--</span>
+        <span class="ov-phase" id="ov-phase"></span>
+      </div>
+      <div class="ov-side green">
+        <span class="ov-score" id="ov-gscore">0</span>
+        <span class="ov-fouls" id="ov-gfouls"></span>
+        <span class="ov-name" id="ov-gname">&ndash;</span>
+      </div>
+    </div>
   </div>
 
   <div class="panels">
     <section class="panel-half">
-      <div class="half-title">MATCH SCHEDULE</div>
-      <main id="rot-grid" class="rot-grid"></main>
+      <div class="half-title" id="left-title">MATCH SCHEDULE</div>
+      <main id="left-panel" class="rot-grid"></main>
     </section>
     <section class="panel-half">
-      <div class="half-title">RANKINGS</div>
+      <div class="half-title" id="right-title">RANKINGS</div>
       <main id="rank-list" class="rank-list"></main>
       <div class="rank-legend">WIN = 2 RP &middot; TIE = 1 RP &middot; ties broken by total points scored, then fewest penalty points</div>
     </section>
@@ -47,8 +64,10 @@ function matchRow(m, current) {
     '</div>';
 }
 
-function renderBracket() {
-  const grid = document.getElementById('rot-grid');
+function renderQualiBracket() {
+  const grid = document.getElementById('left-panel');
+  grid.className = 'rot-grid';
+  document.getElementById('left-title').textContent = 'MATCH SCHEDULE';
   const rotations = {};
   sched.matches.forEach(m => {
     (rotations[m.rotation] = rotations[m.rotation] || []).push(m);
@@ -56,13 +75,46 @@ function renderBracket() {
   grid.innerHTML = Object.keys(rotations).map(r =>
     '<section class="rot-card">' +
     '<div class="rot-title">ROTATION ' + r + '</div>' +
-    rotations[r].map(m => matchRow(m, sched.current)).join('') +
+    rotations[r].map(m => matchRow(m, sched.phase === 'quali' ? sched.current : -1)).join('') +
     '<div class="bye-row">BYE: ' + sched.byes[r] + '</div>' +
     '</section>'
   ).join('');
 }
 
+function renderElimBracket() {
+  const grid = document.getElementById('left-panel');
+  grid.className = 'elim-list';
+  document.getElementById('left-title').textContent = 'ELIMINATION BRACKET';
+  const e = sched.elims;
+  let html = e.matches.map((m, i) => {
+    const done = !!m.result;
+    const cls = ['elim-row'];
+    if (i === e.current && !e.champion) cls.push('current');
+    if (done) cls.push('done');
+    if (!m.decided) cls.push('pending');
+    let mid = 'vs';
+    let yCls = 'er-name yellow', gCls = 'er-name green';
+    if (done) {
+      mid = m.result.yellow + ' – ' + m.result.green;
+      if (m.result.yellow > m.result.green) yCls += ' winner';
+      else if (m.result.green > m.result.yellow) gCls += ' winner';
+    }
+    return '<div class="' + cls.join(' ') + '">' +
+      '<span class="er-label">' + m.label + '</span>' +
+      '<span class="' + yCls + '">' + m.yellow + '</span>' +
+      '<span class="er-mid">' + mid + '</span>' +
+      '<span class="' + gCls + '">' + m.green + '</span>' +
+      '</div>';
+  }).join('');
+  if (e.champion) {
+    html += '<div class="champion-row">&#127942; CHAMPION: ' + e.champion + ' &#127942;</div>';
+  }
+  grid.innerHTML = html;
+}
+
 function renderRankings() {
+  document.getElementById('right-title').textContent =
+    sched.phase === 'elims' ? 'FINAL QUALI RANKINGS' : 'RANKINGS';
   const list = document.getElementById('rank-list');
   list.innerHTML =
     '<div class="rank-row head">' +
@@ -87,10 +139,31 @@ function renderRankings() {
 
 function renderNextBar() {
   const bar = document.getElementById('next-bar');
+  if (sched.phase === 'elims' && sched.elims) {
+    const e = sched.elims;
+    if (e.champion) {
+      bar.innerHTML = '<span class="nb-label">&#127942; ' + e.champion.toUpperCase() +
+        ' WINS IT ALL &#127942;</span>';
+      return;
+    }
+    const cur = e.matches[e.current];
+    const next = e.matches[e.current + 1];
+    bar.innerHTML =
+      '<span class="nb-label">NOW</span>' +
+      '<span class="nb-match">' + cur.label + '</span>' +
+      '<span class="nb-teams"><span class="nb-y">' + cur.yellow + '</span>' +
+      '<span class="nb-vs">vs</span>' +
+      '<span class="nb-g">' + cur.green + '</span></span>' +
+      '<span class="nb-ondeck">' +
+      (next ? 'ON DECK: ' + next.label + ' — ' + next.yellow + ' vs ' + next.green
+            : 'THIS DECIDES IT ALL') +
+      '</span>';
+    return;
+  }
   const cur = sched.matches[sched.current];
   const isLast = sched.current === sched.matches.length - 1;
   if (isLast && cur.result) {
-    bar.innerHTML = '<span class="nb-label">ALL MATCHES COMPLETE</span>';
+    bar.innerHTML = '<span class="nb-label">QUALIFICATIONS COMPLETE</span>';
     return;
   }
   const next = sched.matches[sched.current + 1];
@@ -111,13 +184,41 @@ async function refresh() {
     const r = await fetch('/api/schedule', { cache: 'no-store' });
     if (!r.ok) return;
     sched = await r.json();
-    renderBracket();
+    if (sched.phase === 'elims' && sched.elims) renderElimBracket();
+    else renderQualiBracket();
     renderRankings();
     renderNextBar();
   } catch (e) { /* keep last known schedule */ }
 }
 refresh();
 setInterval(refresh, 3000);
+
+// Score overlay along the bottom of the video: live scores, game clock,
+// and foul counts, refreshed every second from the scoreboard state.
+async function refreshOverlay() {
+  if (!document.body.classList.contains('video-on')) return;
+  try {
+    const s = await fetchState();
+    document.getElementById('ov-yname').textContent = s.yellow_team;
+    document.getElementById('ov-gname').textContent = s.green_team;
+    document.getElementById('ov-yscore').textContent = s.yellow_score;
+    document.getElementById('ov-gscore').textContent = s.green_score;
+    document.getElementById('ov-yfouls').textContent =
+      'F' + s.yellow_fouls + ' M' + s.yellow_majors;
+    document.getElementById('ov-gfouls').textContent =
+      'F' + s.green_fouls + ' M' + s.green_majors;
+    document.getElementById('ov-label').textContent = s.match_label || '';
+    const p = phaseInfo(s);
+    const clock = document.getElementById('ov-clock');
+    clock.textContent = fmtTime(p.phaseRem);
+    clock.className = 'ov-clock' +
+      (s.timer_running && (p.cls === 'endgame' || p.phaseRem <= 10) ? ' low' : '');
+    const phaseEl = document.getElementById('ov-phase');
+    phaseEl.textContent = p.label;
+    phaseEl.className = 'ov-phase ' + p.cls;
+  } catch (e) { /* keep last values */ }
+}
+setInterval(refreshOverlay, 1000);
 
 // Live camera feed: when the camera is up (and not hidden with the on-screen
 // button), the video fills the top of the screen and the schedule/rankings
@@ -141,6 +242,7 @@ function applyMode() {
   document.getElementById('video-wrap').classList.toggle('hidden', !on);
   toggleBtn.classList.toggle('hidden', !cameraUp);
   toggleBtn.textContent = wantVideo ? 'HIDE VIDEO' : 'SHOW VIDEO';
+  if (on) refreshOverlay();
 }
 
 function tryStream() {
