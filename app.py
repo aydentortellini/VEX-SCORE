@@ -313,7 +313,7 @@ def api_adjust():
     return state_json()
 
 
-FOUL_POINTS = {"foul": 3, "major": 8}
+FOUL_POINTS = {"foul": 1, "major": 5}
 
 
 @app.route("/api/foul", methods=["POST"])
