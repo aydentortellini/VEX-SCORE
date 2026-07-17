@@ -81,33 +81,159 @@ function renderQualiBracket() {
   ).join('');
 }
 
+// Graphical bracket: match boxes laid out in rounds with elbow connectors,
+// winners bracket on top and losers bracket below for double elim. Layouts
+// are keyed by slot count, which uniquely identifies the format produced by
+// build_bracket_def (1=final only, 3=4-team SE, 7=8-team SE, 6=4-team DE,
+// 14=8-team DE). edges are win-advancement lines; gfEdges feed the grand
+// final (the losers-final feed is dashed, like a paper bracket).
+const BK_LAYOUTS = {
+  1:  { w: [[0]], l: [], gf: null, edges: [] },
+  3:  { w: [[0, 1], [2]], l: [], gf: null, edges: [[0, 2], [1, 2]] },
+  7:  { w: [[0, 1, 2, 3], [4, 5], [6]], l: [], gf: null,
+        edges: [[0, 4], [1, 4], [2, 5], [3, 5], [4, 6], [5, 6]] },
+  6:  { w: [[0, 1], [2]], l: [[3], [4]], gf: 5,
+        edges: [[0, 2], [1, 2], [3, 4]], gfEdges: [[2, 0], [4, 1]] },
+  14: { w: [[0, 1, 2, 3], [6, 7], [11]], l: [[4, 5], [8, 9], [10], [12]], gf: 13,
+        edges: [[0, 6], [1, 6], [2, 7], [3, 7], [6, 11], [7, 11],
+                [4, 8], [5, 9], [8, 10], [9, 10], [10, 12]],
+        gfEdges: [[11, 0], [12, 1]] },
+};
+
+const BW = 250, BH = 94, COL_GAP = 60, ROW_GAP = 26, SECT_HDR = 40, SECT_GAP = 36;
+
+// Shorten "Winner SEMIFINAL 1"-style placeholders so they fit in a box.
+function bkShorten(name) {
+  if (!/^(Winner|Loser|Seed) /.test(name)) return name;
+  return name.replace('WB SEMIFINAL', 'WB SF').replace('LB SEMIFINAL', 'LB SF')
+    .replace('WB QUARTER', 'WB QF').replace('LB ROUND', 'LB R')
+    .replace('WINNERS FINAL', 'W FINAL').replace('LOSERS FINAL', 'L FINAL')
+    .replace('GRAND FINAL', 'FINAL').replace('ELIMINATION MATCH', 'ELIM')
+    .replace('QUARTERFINAL', 'QF').replace('SEMIFINAL', 'SF');
+}
+
+function bkFit(name, max) {
+  return name.length > max ? name.slice(0, max - 1) + '…' : name;
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Stack the first column, then center each later box on its feeders.
+function bkPlace(cols, edges, y0, pos) {
+  cols.forEach((col, ci) => {
+    const x = 8 + ci * (BW + COL_GAP);
+    col.forEach((idx, ri) => {
+      let y = y0 + ri * (BH + ROW_GAP);
+      if (ci > 0) {
+        const feeds = edges.filter(ed => ed[1] === idx && pos[ed[0]]).map(ed => pos[ed[0]].y);
+        if (feeds.length) y = feeds.reduce((a, b) => a + b, 0) / feeds.length;
+      }
+      pos[idx] = { x: x, y: y };
+    });
+  });
+}
+
+function bkElbow(a, b, dashed) {
+  const x1 = a.x + BW, y1 = a.y + BH / 2, x2 = b.x, y2 = b.y + BH / 2;
+  const mx = (x1 + x2) / 2;
+  return '<path class="bk-line' + (dashed ? ' dashed' : '') + '" d="M' + x1 + ' ' + y1 +
+    (y1 === y2 ? ' H' + x2 : ' H' + mx + ' V' + y2 + ' H' + x2) + '"/>';
+}
+
+function bkBox(m, i, e, isGF) {
+  const cur = i === e.current && !e.champion;
+  const next = !e.champion && i === e.current + 1;
+  let cls = 'bk-match';
+  if (cur) cls += ' current';
+  if (m.series_done) cls += ' done';
+  if (isGF) cls += ' gf';
+  // Scores: series wins for a Bo3/Bo5, the (live-mirrored) game score for Bo1.
+  let ys = '', gs = '';
+  if (m.best_of > 1) {
+    if (m.games.length || m.series_done) { ys = m.wins.yellow; gs = m.wins.green; }
+  } else if (m.games.length) {
+    const g = m.games[m.games.length - 1];
+    ys = g.yellow_score; gs = g.green_score;
+  }
+  let badge = '';
+  if (cur) badge = m.best_of > 1 ? 'NOW · G' + e.current_game : 'NOW';
+  else if (next) badge = 'NEXT';
+  const row = (name, sCls, score, y) => {
+    const ph = /^(Winner|Loser|Seed) /.test(name);
+    return '<text class="bk-name ' + sCls + (ph ? ' ph' : '') +
+      (m.winner === name ? ' winner' : '') + '" x="12" y="' + y + '">' +
+      esc(bkFit(bkShorten(name), 18)) + '</text>' +
+      '<text class="bk-score" x="' + (BW - 12) + '" y="' + y + '" text-anchor="end">' +
+      esc(score) + '</text>';
+  };
+  return '<g class="' + cls + '" transform="translate(' + m._x + ',' + m._y + ')">' +
+    '<rect class="bk-box" width="' + BW + '" height="' + BH + '" rx="10"/>' +
+    '<text class="bk-label" x="12" y="20">' + m.n + ' · ' + esc(m.label) +
+    (m.best_of > 1 ? ' · BO' + m.best_of : '') + '</text>' +
+    (badge ? '<text class="bk-badge' + (cur ? ' now' : '') + '" x="' + (BW - 12) +
+      '" y="20" text-anchor="end">' + badge + '</text>' : '') +
+    '<line class="bk-sep" x1="8" y1="28" x2="' + (BW - 8) + '" y2="28"/>' +
+    row(m.yellow, 'y', ys, 52) +
+    row(m.green, 'g', gs, 81) +
+    '</g>';
+}
+
 function renderElimBracket() {
   const grid = document.getElementById('left-panel');
-  grid.className = 'elim-list';
+  grid.className = 'elim-bracket';
   document.getElementById('left-title').textContent = 'ELIMINATION BRACKET';
   const e = sched.elims;
-  let html = e.matches.map((m, i) => {
-    const done = !!m.result;
-    const cls = ['elim-row'];
-    if (i === e.current && !e.champion) cls.push('current');
-    if (done) cls.push('done');
-    if (!m.decided) cls.push('pending');
-    let mid = 'vs';
-    let yCls = 'er-name yellow', gCls = 'er-name green';
-    if (done) {
-      mid = m.result.yellow + ' – ' + m.result.green;
-      if (m.result.yellow > m.result.green) yCls += ' winner';
-      else if (m.result.green > m.result.yellow) gCls += ' winner';
-    }
-    return '<div class="' + cls.join(' ') + '">' +
-      '<span class="er-label">' + m.label + '</span>' +
-      '<span class="' + yCls + '">' + m.yellow + '</span>' +
-      '<span class="er-mid">' + mid + '</span>' +
-      '<span class="' + gCls + '">' + m.green + '</span>' +
-      '</div>';
-  }).join('');
+  const def = BK_LAYOUTS[e.matches.length] || BK_LAYOUTS[1];
+  const dbl = def.l.length > 0;
+  const pos = [];
+
+  bkPlace(def.w, def.edges, dbl ? SECT_HDR + 8 : 8, pos);
+  let maxWY = 0;
+  def.w.flat().forEach(i => { maxWY = Math.max(maxWY, pos[i].y + BH); });
+  if (dbl) bkPlace(def.l, def.edges, maxWY + SECT_GAP + SECT_HDR, pos);
+  if (def.gf !== null) {
+    const col = Math.max(def.w.length, def.l.length);
+    const ys = def.gfEdges.map(ge => pos[ge[0]].y);
+    pos[def.gf] = { x: 8 + col * (BW + COL_GAP), y: ys.reduce((a, b) => a + b, 0) / ys.length };
+  }
+  let maxX = 0;
+  pos.forEach(p => { maxX = Math.max(maxX, p.x + BW); });
+
+  // Stretch the rows apart so the bracket fills the panel's height instead of
+  // floating in a letterboxed band (the panel is taller than the natural
+  // bracket aspect). Linear scaling keeps every box centered on its feeders.
+  const rect = grid.getBoundingClientRect();
+  const yMin = Math.min.apply(null, pos.map(p => p.y));
+  const yMaxBox = Math.max.apply(null, pos.map(p => p.y));
+  if (rect.width > 0 && rect.height > 0 && yMaxBox > yMin) {
+    const targetH = (maxX + 8) * rect.height / rect.width;
+    const k = Math.min(2.4, Math.max(1, (targetH - yMin - BH - 16) / (yMaxBox - yMin)));
+    pos.forEach(p => { p.y = yMin + (p.y - yMin) * k; });
+  }
+  e.matches.forEach((m, i) => { m._x = pos[i].x; m._y = pos[i].y; });
+
+  let maxY = 0;
+  pos.forEach(p => { maxY = Math.max(maxY, p.y + BH); });
+
+  let svg = '';
+  if (dbl) {
+    const wTop = Math.min.apply(null, def.w.flat().map(i => pos[i].y));
+    const lTop = Math.min.apply(null, def.l.flat().map(i => pos[i].y));
+    svg += '<text class="bk-sect" x="8" y="' + (wTop - 14) + '">WINNERS BRACKET</text>' +
+      '<text class="bk-sect" x="8" y="' + (lTop - 14) + '">LOSERS BRACKET</text>';
+  }
+  svg += def.edges.map(ed => bkElbow(pos[ed[0]], pos[ed[1]])).join('');
+  if (def.gf !== null) {
+    svg += def.gfEdges.map(ge => bkElbow(pos[ge[0]], pos[def.gf], ge[1])).join('');
+  }
+  svg += e.matches.map((m, i) => bkBox(m, i, e, i === e.matches.length - 1)).join('');
+
+  let html = '<svg viewBox="0 0 ' + (maxX + 8) + ' ' + (maxY + 8) +
+    '" preserveAspectRatio="xMidYMid meet">' + svg + '</svg>';
   if (e.champion) {
-    html += '<div class="champion-row">&#127942; CHAMPION: ' + e.champion + ' &#127942;</div>';
+    html += '<div class="champion-row">&#127942; CHAMPION: ' + esc(e.champion) + ' &#127942;</div>';
   }
   grid.innerHTML = html;
 }

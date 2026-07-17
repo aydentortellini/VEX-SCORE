@@ -522,57 +522,64 @@ button { font-family: inherit; cursor: pointer; border: none; color: var(--text)
 .ov-phase.done { color: #ff453a; }
 
 /* Elimination bracket (left panel during elims) */
-.elim-list {
+/* Graphical elimination bracket: an SVG of match boxes joined by elbow
+   connectors, scaled to fit the panel via its viewBox. Coordinates and font
+   sizes below are in viewBox units, not screen pixels. */
+.elim-bracket {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.9vh;
 }
+.elim-bracket svg { flex: 1; min-height: 0; width: 100%; }
 
-.elim-row {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 20vh 1fr auto 1fr;
-  align-items: center;
-  gap: 1.2vh;
-  padding: 0 1.6vh;
-  border-radius: 1.4vh;
-  border: 0.3vh solid var(--edge);
-  background: linear-gradient(180deg, #20202b, #17171f);
-  font-size: 2.6vh;
-  font-weight: 700;
-}
-
-.elim-row.current {
-  border-color: rgba(255, 255, 255, 0.55);
-  background: linear-gradient(180deg, #262633, #1a1a24);
-  box-shadow: 0 0 2.5vh rgba(255, 255, 255, 0.12);
-}
-.elim-row.done { opacity: 0.7; }
-.elim-row.pending .er-name { color: var(--dim); font-weight: 700; font-style: italic; }
-
-.er-label {
-  font-size: 1.7vh;
+.bk-sect {
+  fill: var(--dim);
+  font-size: 17px;
   font-weight: 800;
-  letter-spacing: 0.12em;
-  color: var(--dim);
+  letter-spacing: 0.3em;
 }
-.elim-row:last-of-type .er-label { color: var(--yellow); }
 
-.er-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.er-name.yellow { color: var(--a-text); text-align: right; }
-.er-name.green { color: var(--b-text); text-align: left; }
-.er-name.winner { text-decoration: underline; }
+.bk-line { fill: none; stroke: rgba(255, 255, 255, 0.3); stroke-width: 2.5; }
+.bk-line.dashed { stroke-dasharray: 7 6; }
 
-.er-mid {
-  font-size: 2.2vh;
-  color: var(--dim);
+.bk-box {
+  fill: #1d1d27;
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 2;
+}
+.bk-match.current .bk-box {
+  fill: #262633;
+  stroke: rgba(255, 255, 255, 0.65);
+  stroke-width: 3;
+}
+.bk-match.done { opacity: 0.72; }
+.bk-sep { stroke: rgba(255, 255, 255, 0.1); stroke-width: 1.5; }
+
+.bk-label {
+  fill: var(--dim);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.bk-match.gf .bk-label { fill: var(--yellow); }
+
+.bk-badge { font-size: 13px; font-weight: 800; letter-spacing: 0.1em; fill: var(--dim); }
+.bk-badge.now { fill: var(--yellow); }
+
+.bk-name { font-size: 17px; font-weight: 700; }
+.bk-name.y { fill: var(--a-text); }
+.bk-name.g { fill: var(--b-text); }
+.bk-name.ph { fill: var(--dim); font-weight: 600; font-style: italic; font-size: 14px; }
+.bk-name.winner { text-decoration: underline; }
+
+.bk-score {
+  fill: var(--text);
+  font-size: 16px;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
-  min-width: 7vh;
-  text-align: center;
 }
-.elim-row.done .er-mid { color: var(--text); }
 
 .champion-row {
   flex: 0 0 7vh;
@@ -588,17 +595,7 @@ button { font-family: inherit; cursor: pointer; border: none; color: var(--text)
   box-shadow: 0 0 4vh rgba(255, 198, 26, 0.4);
 }
 
-.schedule.video-on .elim-list { gap: 0.4vh; }
-.schedule.video-on .elim-row {
-  grid-template-columns: 11vh 1fr auto 1fr;
-  gap: 0.6vh;
-  padding: 0 0.8vh;
-  border-radius: 0.8vh;
-  border-width: 0.2vh;
-  font-size: 1.7vh;
-}
-.schedule.video-on .er-label { font-size: 1.1vh; letter-spacing: 0.08em; }
-.schedule.video-on .er-mid { font-size: 1.4vh; min-width: 4vh; }
+.schedule.video-on .elim-bracket { gap: 0.4vh; }
 .schedule.video-on .champion-row { flex: 0 0 3.4vh; font-size: 2vh; border-radius: 0.8vh; }
 
 /* Button to hide the video and show only schedule + rankings */
